@@ -1,39 +1,80 @@
-#!/usr/bin/env perl
-
-# PowerPC assembler distiller by <appro>.
+#! /usr/bin/env perl
+# Copyright 2006-2016 The OpenSSL Project Authors. All Rights Reserved.
+#
+# Licensed under the OpenSSL license (the "License").  You may not use
+# this file except in compliance with the License.  You can obtain a copy
+# in the file LICENSE in the source distribution or at
+# https://www.openssl.org/source/license.html
 
 my $flavour = shift;
 my $output = shift;
 open STDOUT,">$output" || die "can't open $output: $!";
 
 my %GLOBALS;
+my %TYPES;
 my $dotinlocallabels=($flavour=~/linux/)?1:0;
 
 ################################################################
 # directives which need special treatment on different platforms
 ################################################################
+my $type = sub {
+    my ($dir,$name,$type) = @_;
+
+    $TYPES{$name} = $type;
+    if ($flavour =~ /linux/) {
+	$name =~ s|^\.||;
+	".type	$name,$type";
+    } else {
+	"";
+    }
+};
 my $globl = sub {
     my $junk = shift;
     my $name = shift;
     my $global = \$GLOBALS{$name};
+    my $type = \$TYPES{$name};
     my $ret;
 
-    $name =~ s|^[\.\_]||;
- 
+    $name =~ s|^\.||;
+
     SWITCH: for ($flavour) {
-	/aix/		&& do { $name = ".$name";
+	/aix/		&& do { if (!$$type) {
+				    $$type = "\@function";
+				}
+				if ($$type =~ /function/) {
+				    $name = ".$name";
+				}
 				last;
 			      };
 	/osx/		&& do { $name = "_$name";
 				last;
 			      };
-	/linux/
-			&& do {	$ret = "_GLOBAL($name)";
+	/linux.*(32|64le)/
+			&& do {	$ret .= ".globl	$name";
+				if (!$$type) {
+				    $ret .= "\n.type	$name,\@function";
+				    $$type = "\@function";
+				}
+				last;
+			      };
+	/linux.*64/	&& do {	$ret .= ".globl	$name";
+				if (!$$type) {
+				    $ret .= "\n.type	$name,\@function";
+				    $$type = "\@function";
+				}
+				if ($$type =~ /function/) {
+				    $ret .= "\n.section	\".opd\",\"aw\"";
+				    $ret .= "\n.align	3";
+				    $ret .= "\n$name:";
+				    $ret .= "\n.quad	.$name,.TOC.\@tocbase,0";
+				    $ret .= "\n.previous";
+				    $name = ".$name";
+				}
 				last;
 			      };
     }
 
-    $ret = ".globl	$name\nalign 5\n$name:" if (!$ret);
+    $ret = ".globl	$name" if (!$ret);
     $$global = $name;
     $ret;
 };
@@ -54,9 +95,13 @@ my $machine = sub {
 my $size = sub {
     if ($flavour =~ /linux/)
     {	shift;
-	my $name = shift; $name =~ s|^[\.\_]||;
-	my $ret  = ".size	$name,.-".($flavour=~/64$/?".":"").$name;
-	$ret .= "\n.size	.$name,.-.$name" if ($flavour=~/64$/);
+	my $name = shift;
+	my $real = $GLOBALS{$name} ? \$GLOBALS{$name} : \$name;
+	my $ret  = ".size	$$real,.-$$real";
+	$name =~ s|^\.||;
+	if ($$real ne $name) {
+	    $ret .= "\n.size	$name,.-$$real";
+	}
 	$ret;
     }
     else
@@ -139,6 +184,26 @@ my $vmr = sub {
     "	vor	$vx,$vy,$vy";
 };
 
+# Some ABIs specify vrsave, special-purpose register #256, as reserved
+# for system use.
+my $no_vrsave = ($flavour =~ /aix|linux64le/);
+my $mtspr = sub {
+    my ($f,$idx,$ra) = @_;
+    if ($idx == 256 && $no_vrsave) {
+	"	or	$ra,$ra,$ra";
+    } else {
+	"	mtspr	$idx,$ra";
+    }
+};
+my $mfspr = sub {
+    my ($f,$rd,$idx) = @_;
+    if ($idx == 256 && $no_vrsave) {
+	"	li	$rd,-1";
+    } else {
+	"	mfspr	$rd,$idx";
+    }
+};
+
 # PowerISA 2.06 stuff
 sub vsxmem_op {
     my ($f, $vrt, $ra, $rb, $op) = @_;
@@ -175,7 +240,29 @@ my $mtsle	= sub {
     "	.long	".sprintf "0x%X",(31<<26)|($arg<<21)|(147*2);
 };
 
-print "#include <asm/ppc_asm.h>\n" if $flavour =~ /linux/;
+# PowerISA 3.0 stuff
+my $maddhdu = sub {
+    my ($f, $rt, $ra, $rb, $rc) = @_;
+    "	.long	".sprintf "0x%X",(4<<26)|($rt<<21)|($ra<<16)|($rb<<11)|($rc<<6)|49;
+};
+my $maddld = sub {
+    my ($f, $rt, $ra, $rb, $rc) = @_;
+    "	.long	".sprintf "0x%X",(4<<26)|($rt<<21)|($ra<<16)|($rb<<11)|($rc<<6)|51;
+};
+my $iseleq = sub {
+    my ($f, $rt, $ra, $rb) = @_;
+    "  .long   ".sprintf "0x%X",(31<<26)|($rt<<21)|($ra<<16)|($rb<<11)|(2<<6)|30;
+};
+my $addex = sub {
+    my ($f, $rt, $ra, $rb, $cy) = @_;
+    "  .long   ".sprintf "0x%X",(31<<26)|($rt<<21)|($ra<<16)|($rb<<11)|($cy<<9)|(170<<1);
+};
+
+
+my $darn = sub {
+    my ($f, $rt, $l) = @_;
+    "	.long	".sprintf "0x%X",(31<<26)|($rt<<21)|($l<<16)|(755<<1);
+};
 
 while($line=<>) {
 
@@ -185,8 +272,22 @@ while($line=<>) {
     $line =~ s|\s+$||;		# ... and at the end
 
     {
-	$line =~ s|\b\.L(\w+)|L$1|g;	# common denominator for Locallabel
+	$line =~ s|\.L(\w+)|L$1|g;	# common denominator for Locallabel
 	$line =~ s|\bL(\w+)|\.L$1|g	if ($dotinlocallabels);
+    }
+
+    {
+	$line =~ s|(^[\.\w]+)\:\s*||;
+	my $label = $1;
+	if ($label) {
+	    my $xlated = ($GLOBALS{$label} or $label);
+	    print "$xlated:";
+	    if ($flavour =~ /linux.*64le/) {
+		if ($TYPES{$label} =~ /function/) {
+		    printf "\n.localentry	%s,0\n",$xlated;
+		}
+	    }
+	}
     }
 
     {

@@ -105,6 +105,8 @@ Lconsts:
 .asciz	"AES for PowerISA 2.07, CRYPTOGAMS by <appro\@openssl.org>"
 
 .globl	.${prefix}_set_encrypt_key
+.align	5
+.${prefix}_set_encrypt_key:
 Lset_encrypt_key:
 	mflr		r11
 	$PUSH		r11,$LRSAVE($sp)
@@ -366,6 +368,8 @@ Lenc_key_abort:
 .size	.${prefix}_set_encrypt_key,.-.${prefix}_set_encrypt_key
 
 .globl	.${prefix}_set_decrypt_key
+.align	5
+.${prefix}_set_decrypt_key:
 	$STU		$sp,-$FRAME($sp)
 	mflr		r10
 	$PUSH		r10,$FRAME+$LRSAVE($sp)
@@ -421,6 +425,8 @@ my ($inp,$out,$key,$rounds,$idx)=map("r$_",(3..7));
 
 $code.=<<___;
 .globl	.${prefix}_${dir}crypt
+.align	5
+.${prefix}_${dir}crypt:
 	lwz		$rounds,240($key)
 	lis		r0,0xfc00
 	mfspr		$vrsave,256
@@ -498,6 +504,8 @@ my ($ivec,$inptail,$inpperm,$outhead,$outperm,$outmask,$keyperm)=
 						map("v$_",(4..10));
 $code.=<<___;
 .globl	.${prefix}_cbc_encrypt
+.align	5
+.${prefix}_cbc_encrypt:
 	${UCMP}i	$len,16
 	bltlr-
 
@@ -660,6 +668,7 @@ ___
 {{	# Optimized CBC decrypt procedure				#
 my $key_="r11";
 my ($x00,$x10,$x20,$x30,$x40,$x50,$x60,$x70)=map("r$_",(0,8,26..31));
+    $x00=0 if ($flavour =~ /osx/);
 my ($in0, $in1, $in2, $in3, $in4, $in5, $in6, $in7 )=map("v$_",(0..3,10..13));
 my ($out0,$out1,$out2,$out3,$out4,$out5,$out6,$out7)=map("v$_",(14..21));
 my $rndkey0="v23";	# v24-v25 rotating buffer for first found keys
@@ -1239,7 +1248,7 @@ Lcbc_dec8x_done:
 	addi		$sp,$sp,`$FRAME+21*16+6*$SIZE_T`
 	blr
 	.long		0
-	.byte		0,12,0x14,0,0x80,6,6,0
+	.byte		0,12,0x04,0,0x80,6,6,0
 	.long		0
 .size	.${prefix}_cbc_encrypt,.-.${prefix}_cbc_encrypt
 ___
@@ -1255,6 +1264,8 @@ my $dat=$tmp;
 
 $code.=<<___;
 .globl	.${prefix}_ctr32_encrypt_blocks
+.align	5
+.${prefix}_ctr32_encrypt_blocks:
 	${UCMP}i	$len,1
 	bltlr-
 
@@ -1363,6 +1374,7 @@ ___
 {{	# Optimized CTR procedure					#
 my $key_="r11";
 my ($x00,$x10,$x20,$x30,$x40,$x50,$x60,$x70)=map("r$_",(0,8,26..31));
+    $x00=0 if ($flavour =~ /osx/);
 my ($in0, $in1, $in2, $in3, $in4, $in5, $in6, $in7 )=map("v$_",(0..3,10,12..14));
 my ($out0,$out1,$out2,$out3,$out4,$out5,$out6,$out7)=map("v$_",(15..22));
 my $rndkey0="v23";	# v24-v25 rotating buffer for first found keys
@@ -1457,28 +1469,28 @@ Load_ctr32_enc_key:
 	?vperm		v31,v31,$out0,$keyperm
 	lvx		v25,$x10,$key_		# pre-load round[2]
 
-	vadduqm		$two,$one,$one
+	vadduwm		$two,$one,$one
 	subi		$inp,$inp,15		# undo "caller"
 	$SHL		$len,$len,4
 
-	vadduqm		$out1,$ivec,$one	# counter values ...
-	vadduqm		$out2,$ivec,$two
+	vadduwm		$out1,$ivec,$one	# counter values ...
+	vadduwm		$out2,$ivec,$two
 	vxor		$out0,$ivec,$rndkey0	# ... xored with rndkey[0]
 	 le?li		$idx,8
-	vadduqm		$out3,$out1,$two
+	vadduwm		$out3,$out1,$two
 	vxor		$out1,$out1,$rndkey0
 	 le?lvsl	$inpperm,0,$idx
-	vadduqm		$out4,$out2,$two
+	vadduwm		$out4,$out2,$two
 	vxor		$out2,$out2,$rndkey0
 	 le?vspltisb	$tmp,0x0f
-	vadduqm		$out5,$out3,$two
+	vadduwm		$out5,$out3,$two
 	vxor		$out3,$out3,$rndkey0
 	 le?vxor	$inpperm,$inpperm,$tmp	# transform for lvx_u/stvx_u
-	vadduqm		$out6,$out4,$two
+	vadduwm		$out6,$out4,$two
 	vxor		$out4,$out4,$rndkey0
-	vadduqm		$out7,$out5,$two
+	vadduwm		$out7,$out5,$two
 	vxor		$out5,$out5,$rndkey0
-	vadduqm		$ivec,$out6,$two	# next counter value
+	vadduwm		$ivec,$out6,$two	# next counter value
 	vxor		$out6,$out6,$rndkey0
 	vxor		$out7,$out7,$rndkey0
 
@@ -1614,27 +1626,27 @@ Loop_ctr32_enc8x_middle:
 
 	vcipherlast	$in0,$out0,$in0
 	vcipherlast	$in1,$out1,$in1
-	 vadduqm	$out1,$ivec,$one	# counter values ...
+	 vadduwm	$out1,$ivec,$one	# counter values ...
 	vcipherlast	$in2,$out2,$in2
-	 vadduqm	$out2,$ivec,$two
+	 vadduwm	$out2,$ivec,$two
 	 vxor		$out0,$ivec,$rndkey0	# ... xored with rndkey[0]
 	vcipherlast	$in3,$out3,$in3
-	 vadduqm	$out3,$out1,$two
+	 vadduwm	$out3,$out1,$two
 	 vxor		$out1,$out1,$rndkey0
 	vcipherlast	$in4,$out4,$in4
-	 vadduqm	$out4,$out2,$two
+	 vadduwm	$out4,$out2,$two
 	 vxor		$out2,$out2,$rndkey0
 	vcipherlast	$in5,$out5,$in5
-	 vadduqm	$out5,$out3,$two
+	 vadduwm	$out5,$out3,$two
 	 vxor		$out3,$out3,$rndkey0
 	vcipherlast	$in6,$out6,$in6
-	 vadduqm	$out6,$out4,$two
+	 vadduwm	$out6,$out4,$two
 	 vxor		$out4,$out4,$rndkey0
 	vcipherlast	$in7,$out7,$in7
-	 vadduqm	$out7,$out5,$two
+	 vadduwm	$out7,$out5,$two
 	 vxor		$out5,$out5,$rndkey0
 	le?vperm	$in0,$in0,$in0,$inpperm
-	 vadduqm	$ivec,$out6,$two	# next counter value
+	 vadduwm	$ivec,$out6,$two	# next counter value
 	 vxor		$out6,$out6,$rndkey0
 	le?vperm	$in1,$in1,$in1,$inpperm
 	 vxor		$out7,$out7,$rndkey0
@@ -1889,7 +1901,7 @@ Lctr32_enc8x_done:
 	addi		$sp,$sp,`$FRAME+21*16+6*$SIZE_T`
 	blr
 	.long		0
-	.byte		0,12,0x14,0,0x80,6,6,0
+	.byte		0,12,0x04,0,0x80,6,6,0
 	.long		0
 .size	.${prefix}_ctr32_encrypt_blocks,.-.${prefix}_ctr32_encrypt_blocks
 ___
@@ -1916,6 +1928,8 @@ my $taillen = $key2;
 
 $code.=<<___;
 .globl	.${prefix}_xts_encrypt
+.align	5
+.${prefix}_xts_encrypt:
 	mr		$inp,r3				# reassign
 	li		r3,-1
 	${UCMP}i	$len,16
@@ -2125,6 +2139,8 @@ Lxts_enc_ret:
 .size	.${prefix}_xts_encrypt,.-.${prefix}_xts_encrypt
 
 .globl	.${prefix}_xts_decrypt
+.align	5
+.${prefix}_xts_decrypt:
 	mr		$inp,r3				# reassign
 	li		r3,-1
 	${UCMP}i	$len,16
@@ -2995,7 +3011,7 @@ _aesp8_xts_enc5x:
 	 vxor		$twk0,$twk0,v31
 
 	vcipher		$out0,$out0,v26
-	lvsr		$inpperm,r0,$taillen	# $in5 is no more
+	lvsr		$inpperm,0,$taillen	# $in5 is no more
 	vcipher		$out1,$out1,v26
 	vcipher		$out2,$out2,v26
 	vcipher		$out3,$out3,v26

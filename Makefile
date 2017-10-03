@@ -4,17 +4,13 @@ RM = -rm
 PERL = perl
 
 CFLAGS = -g -m64
-INCLUDES = -Iinclude
 
 BANNER = @echo "\n=== $@\n"
 
 MACH = $(shell uname -m)
 
 AES = run_aes
-AES_OBJS = aes/aes.o aes/aesp8-ppc.o
-
-CHACHA = run_chacha20
-CHACHA_OBJS = chacha20/chacha.o chacha20/chacha-ppc.o
+AES_OBJS = aes.o aesp8-ppc.o
 
 all: $(AES) $(CHACHA)
 
@@ -22,15 +18,11 @@ $(AES): $(AES_OBJS)
 	$(BANNER)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $(AES_OBJS) $(LFLAGS) $(LIBS)
 
-$(CHACHA): $(CHACHA_OBJS)
-	$(BANNER)
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $(CHACHA_OBJS) $(LFLAGS) $(LIBS)
-
 %.S: %.pl
 	$(BANNER)
 	$(PERL) $< linux-$(MACH) > $@
 
-%-ppc.o: %-ppc.S
+%-ppc.o: %-ppc.s
 	$(BANNER)
 	$(CC) $(CFLAGS) $(INCLUDES) -c -mno-strict-align -nostdinc \
 		-D__KERNEL__ -DHAVE_AS_ATHIGH=1 -D__ASSEMBLY__ -Iarch/powerpc \
@@ -43,6 +35,6 @@ $(CHACHA): $(CHACHA_OBJS)
 
 clean:
 	$(BANNER)
-	$(RM) -f aes/*.o aes/*.S chacha20/*.o chacha20/*.S run_*
+	$(RM) -f *.o *.s run_*
 
-.PRECIOUS: %.S
+.PRECIOUS: %.s
