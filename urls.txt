@@ -1,0 +1,6 @@
+https://stackoverflow.com/questions/22743383/using-aes-cbc-from-openssl
+https://stackoverflow.com/questions/34666795/segfault-in-aes-cbc-encrypt
+https://stackoverflow.com/questions/19889740/simple-aes-encryption-decryption-with-openssl-library-in-c
+https://security.stackexchange.com/questions/29993/aes-cbc-padding-when-the-message-length-is-a-multiple-of-the-block-size
+https://www.linuxquestions.org/questions/programming-9/openssl-aes-h-aes_cbc_encrypt-length-parameter-4175440039/
+https://stackoverflow.com/questions/11129826/build-openssl-on-linux-with-g-for-debugging
